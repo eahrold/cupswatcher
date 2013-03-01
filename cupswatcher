@@ -15,6 +15,7 @@
 CUPSWATCHER_PATH=/usr/local/sbin/
 TIMER=30
 LAUNCHD_PATH=/Library/LaunchDaemons/com.aapps.cupswatcher
+OSKERN=`sysctl -n kern.ostype`
 
 case "$1" in
 
@@ -24,20 +25,24 @@ case "$1" in
 		if [ `whoami` = "root" ] ; then 
 			[[ ! -d "$CUPSWATCHER_PATH" ]] && mkdir -pv "$CUPSWATCHER_PATH"
 			cp "$0" "$CUPSWATCHER_PATH"			
-			echo "Making LaunchD plist file named com.aapps.cupswatcher"
-			echo "The file is located in /Library/LaunchDaemons"
-			defaults write "$LAUNCHD_PATH" Label com.aapps.cupswatcher
-			defaults write "$LAUNCHD_PATH" ProgramArguments -array "$CUPSWATCHER_PATH"cupswatcher
-			defaults write "$LAUNCHD_PATH" StartInterval -int $TIMER
-			chmod 755 "$LAUNCHD_PATH".plist
-			[[ "$(launchctl list | grep -c cupswatcher)" = "1" ]] && launchctl unload "$LAUNCHD_PATH".plist && echo unloading old version…
-			echo "Loading cupswatcher into launchD"
-			launchctl load "$LAUNCHD_PATH".plist
+
+			### this next part checks if the os is OS X and installs a launchD if it is so...
+				if [ "$OSKERN" == "Darwin" ]; then
+					echo "Making LaunchD plist file named com.aapps.cupswatcher"
+					echo "The file is located in /Library/LaunchDaemons"
+					defaults write "$LAUNCHD_PATH" Label com.aapps.cupswatcher
+					defaults write "$LAUNCHD_PATH" ProgramArguments -array "$CUPSWATCHER_PATH"cupswatcher
+					defaults write "$LAUNCHD_PATH" StartInterval -int $TIMER
+					chmod 755 "$LAUNCHD_PATH".plist
+					[[ "$(launchctl list | grep -c cupswatcher)" = "1" ]] && launchctl unload "$LAUNCHD_PATH".plist && echo unloading old version…
+					echo "Loading cupswatcher into launchD"
+					launchctl load "$LAUNCHD_PATH".plist
+				fi
 		else
-		echo the installer needs to be run as root
+			echo the installer needs to be run as root
 		exit 1
 		fi	
-		exit 0
+	exit 0
 	;;
 
 
@@ -45,10 +50,11 @@ case "$1" in
 	*)
 
 #### set up varibles
-ENABLE_PRINTER="/usr/sbin/cupsenable"
-CANCEL_LAST_JOB="lprm -P"
+ENABLE_PRINTER="$(which cupsenable)"
+CANCEL_LAST_JOB="$(which lprm) -P"
 LOG_FILE=/var/log/cupswatcher.log
-touch $LOG_FILE ; chown root:admin $LOG_FILE ; chmod 770 $LOG_FILE
+
+[[ -z "LOG_FILE" ]] && touch $LOG_FILE && chown root:admin $LOG_FILE && chmod 770 $LOG_FILE 
 
 ### Find any paused printers
 PAUSED_PRINTER_LIST=$(lpstat -p | grep disabled | awk '{printf $2 " "}')
@@ -73,12 +79,11 @@ if [ -n "$PAUSED_PRINTER_LIST" ] ; then
 fi
 
 
-exit -0
+exit 0
 ;;
 
 
 
 #### end case
 esac
-
-exit -0 ;
+exit 0 ;
