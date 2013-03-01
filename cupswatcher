@@ -1,0 +1,84 @@
+#!/bin/bash
+
+#####################################################
+#####################################################
+##      Sick of CUPS queues pausing for no reason,  #
+##      Leaving your labs stuck for the night?      #
+##      Me too.                                     #
+##      So I wrote this little script               #
+##      To cancel jobs and restart queues.          #
+##                                                  #
+#####################################################
+#####################################################
+
+#####  Configure these to suite your os X environment
+CUPSWATCHER_PATH=/usr/local/sbin/
+TIMER=30
+LAUNCHD_PATH=/Library/LaunchDaemons/com.aapps.cupswatcher
+
+case "$1" in
+
+### install self and create LauchD plist file
+	-i|--install)
+		##### test if run as root/sudoed
+		if [ `whoami` = "root" ] ; then 
+			[[ ! -d "$CUPSWATCHER_PATH" ]] && mkdir -pv "$CUPSWATCHER_PATH"
+			cp "$0" "$CUPSWATCHER_PATH"			
+			echo "Making LaunchD plist file named com.aapps.cupswatcher"
+			echo "The file is located in /Library/LaunchDaemons"
+			defaults write "$LAUNCHD_PATH" Label com.aapps.cupswatcher
+			defaults write "$LAUNCHD_PATH" ProgramArguments -array "$CUPSWATCHER_PATH"cupswatcher
+			defaults write "$LAUNCHD_PATH" StartInterval -int $TIMER
+			chmod 755 "$LAUNCHD_PATH".plist
+			[[ "$(launchctl list | grep -c cupswatcher)" = "1" ]] && launchctl unload "$LAUNCHD_PATH".plist && echo unloading old version…
+			echo "Loading cupswatcher into launchD"
+			launchctl load "$LAUNCHD_PATH".plist
+		else
+		echo the installer needs to be run as root
+		exit 1
+		fi	
+		exit 0
+	;;
+
+
+##### otherwise continue
+	*)
+
+#### set up varibles
+ENABLE_PRINTER="/usr/sbin/cupsenable"
+CANCEL_LAST_JOB="lprm -P"
+LOG_FILE=/var/log/cupswatcher.log
+touch $LOG_FILE ; chown root:admin $LOG_FILE ; chmod 770 $LOG_FILE
+
+### Find any paused printers
+PAUSED_PRINTER_LIST=$(lpstat -p | grep disabled | awk '{printf $2 " "}')
+
+if [ -n "$PAUSED_PRINTER_LIST" ] ; then
+	for PRINTER in $PAUSED_PRINTER_LIST ; do 
+		
+#### if the same print job has stopped the queue twice, delete it (otherwise just restart the queue)  
+		LAST_JOB=$(lpstat  -W not-completed | grep  $PRINTER | head -1 | awk '{print $1}')
+			
+			if [ -f /tmp/"$LAST_JOB" ] ; then
+				$CANCEL_LAST_JOB "$PRINTER"
+				$ENABLE_PRINTER "$PRINTER"
+					echo "$PRINTER" was resumed and job "$LAST_JOB" was canceled on $(date) >> $LOG_FILE
+						[[ -n "$LAST_JOB" ]] && rm /tmp/"$LAST_JOB"		
+			else
+				$ENABLE_PRINTER $PRINTER
+					echo "$PRINTER" was resumed on $(date) >> $LOG_FILE
+						[[ -n "$LAST_JOB" ]] && touch /tmp/"$LAST_JOB"				
+			fi
+	done
+fi
+
+
+exit -0
+;;
+
+
+
+#### end case
+esac
+
+exit -0 ;
