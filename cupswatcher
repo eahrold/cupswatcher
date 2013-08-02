@@ -45,9 +45,21 @@ case "$1" in
 	exit 0
 	;;
 
-
 ##### otherwise continue
 	*)
+
+### run an extra routine if this is a server
+if [ "$1" ==  "-s" ]; then 
+	CUPS_LAUNCHD="/System/Library/LaunchDaemons/org.cups.cupsd.plist"
+	SERVER_STATUS=$(curl --silent http://127.0.0.1:631/printers/ | grep -c -w 'Internal Server Error')
+	echo This is $SERVER_STATUS
+	if [ $SERVER_STATUS -gt 0 ]; then 
+		launchctl unload ${CUPS_LAUNCHD}
+		launchctl unload ${CUPS_LAUNCHD}
+		echo The Server was restarted on $(date) due to an Internal Error >> $LOG_FILE
+	fi
+fi
+
 
 #### set up varibles
 ENABLE_PRINTER="$(which cupsenable)"
