@@ -29,11 +29,11 @@ case "$1" in
 			### this next part checks if the os is OS X and installs a launchD if it is so...
 				if [ "$OSKERN" == "Darwin" ]; then
 					echo "Making LaunchD plist file named com.aapps.cupswatcher"
-					echo "The file is located in /Library/LaunchDaemons"
+					echo "The file is located at ${LAUNCHD_PATH}"
 					defaults write "$LAUNCHD_PATH" Label com.aapps.cupswatcher
 					defaults write "$LAUNCHD_PATH" ProgramArguments -array "$CUPSWATCHER_PATH"cupswatcher
 					defaults write "$LAUNCHD_PATH" StartInterval -int $TIMER
-					chmod 755 "$LAUNCHD_PATH".plist
+					chmod 644 "$LAUNCHD_PATH".plist
 					[[ "$(launchctl list | grep -c cupswatcher)" = "1" ]] && launchctl unload "$LAUNCHD_PATH".plist && echo unloading old version…
 					echo "Loading cupswatcher into launchD"
 					launchctl load "$LAUNCHD_PATH".plist
