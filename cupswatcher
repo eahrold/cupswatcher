@@ -54,13 +54,13 @@ ENABLE_PRINTER="$(which cupsenable)"
 CANCEL_LAST_JOB="$(which lprm) -P"
 LOG_FILE=/var/log/cupswatcher.log
 
-[[ -z "LOG_FILE" ]] && touch $LOG_FILE && chown root:admin $LOG_FILE && chmod 770 $LOG_FILE 
+[[ -z "LOG_FILE" ]] && touch $LOG_FILE && chown root:admin $LOG_FILE && chmod 750 $LOG_FILE 
 
 ### Find any paused printers
 PAUSED_PRINTER_LIST=$(lpstat -p | grep disabled | awk '{printf $2 " "}')
 
 if [ -n "$PAUSED_PRINTER_LIST" ] ; then
-	for PRINTER in $PAUSED_PRINTER_LIST ; do 
+	for PRINTER in ${PAUSED_PRINTER_LIST[@]} ; do 
 		
 #### if the same print job has stopped the queue twice, delete it (otherwise just restart the queue)  
 		LAST_JOB=$(lpstat  -W not-completed | grep  $PRINTER | head -1 | awk '{print $1}')
