@@ -47,6 +47,31 @@ case "$1" in
 		fi	
 	exit 0
 	;;
+	
+	-r|--server)
+		##### test if run as root/sudoed
+		if [ `whoami` = "root" ] ; then 
+			[[ ! -d "$CUPSWATCHER_PATH" ]] && mkdir -pv "$CUPSWATCHER_PATH"
+			cp "$0" "$CUPSWATCHER_PATH"			
+
+			### this next part checks if the os is OS X and installs a launchD if it is so...
+				if [ "$OSKERN" == "Darwin" ]; then
+					echo "Making LaunchD plist file named com.aapps.cupswatcher"
+					echo "The file is located at ${LAUNCHD_PATH}"
+					defaults write "$LAUNCHD_PATH" Label com.aapps.cupswatcher
+					defaults write ~/Desktop/test ProgramArguments -array '("$CUPSWATCHER_PATH"cupswatcher","-s")'
+					defaults write "$LAUNCHD_PATH" StartInterval -int $TIMER
+					chmod 644 "$LAUNCHD_PATH".plist
+					[[ "$(launchctl list | grep -c cupswatcher)" = "1" ]] && launchctl unload "$LAUNCHD_PATH".plist && echo unloading old version…
+					echo "Loading cupswatcher into launchD"
+					launchctl load "$LAUNCHD_PATH".plist
+				fi
+		else
+			echo the installer needs to be run as root
+		exit 1
+		fi	
+	exit 0
+	;;
 
 ##### otherwise continue
 	*)
