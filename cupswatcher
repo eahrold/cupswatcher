@@ -12,9 +12,10 @@
 #####################################################
 
 #####  Configure these to suite your os X environment
+REVERSE_DOMAIN="com.eeaapps.cupswatcher"
 CUPSWATCHER_PATH=/usr/local/sbin/
 TIMER=30
-LAUNCHD_PATH=/Library/LaunchDaemons/com.aapps.cupswatcher
+LAUNCHD_PATH="/Library/LaunchDaemons/$REVERSE_DOMAIN"
 CUPS_LAUNCHD="/System/Library/LaunchDaemons/org.cups.cupsd.plist"
 
 OSKERN=`sysctl -n kern.ostype`
@@ -25,13 +26,13 @@ case "$1" in
 ### install self and create LauchD plist file
 	-i|--install)
 		##### test if run as root/sudoed
-		if [ `whoami` = "root" ] ; then 
+		if [ `whoami` == "root" ] ; then 
 			[[ ! -d "$CUPSWATCHER_PATH" ]] && mkdir -pv "$CUPSWATCHER_PATH"
 			cp "$0" "$CUPSWATCHER_PATH"			
 
 			### this next part checks if the os is OS X and installs a launchD if it is so...
 				if [ "$OSKERN" == "Darwin" ]; then
-					echo "Making LaunchD plist file named com.aapps.cupswatcher"
+					echo "Making LaunchD plist file named $REVERSE_DOMAIN"
 					echo "The file is located at ${LAUNCHD_PATH}"
 					defaults write "$LAUNCHD_PATH" Label com.aapps.cupswatcher
 					defaults write "$LAUNCHD_PATH" ProgramArguments -array "$CUPSWATCHER_PATH"cupswatcher
@@ -56,11 +57,11 @@ case "$1" in
 
 			### the server side uses the web interface to determin wether something's broken
 			### so we'll turn it on 
-			cupsctl WebInterface=yes
+			/usr/sbin/cupsctl WebInterface=yes
 			
 			### this next part checks if the os is OS X and installs a launchD if it is so...
 				if [ "$OSKERN" == "Darwin" ]; then
-					echo "Making LaunchD plist file named com.aapps.cupswatcher"
+					echo "Making LaunchD plist file named com.eeaapps.cupswatcher"
 					echo "The file is located at ${LAUNCHD_PATH}"
 					defaults write "$LAUNCHD_PATH" Label com.aapps.cupswatcher
 					defaults write "$LAUNCHD_PATH" ProgramArguments -array "$CUPSWATCHER_PATH/cupswatcher" "-s"
@@ -87,6 +88,7 @@ _reload_cups(){
 	exit 1
 }
 
+
 ### run an extra routine if this is a server
 if [ "$1" ==  "-s" ]; then 
 	SERVER_STATUS=$(curl --silent http://127.0.0.1:631/printers/)
@@ -99,7 +101,7 @@ if [ "$1" ==  "-s" ]; then
 	else
 		PRINTER_ERROR=`echo $SERVER_STATUS | grep -c -w 'Internal Server Error'`
 		if [ $PRINTER_ERROR -gt 0 ]; then 
-			echo -e "The Server was restarted on $(date) due to an Printer Avaliability Error" >> $LOG_FILE
+			echo -e "The Server was restarted on $(date) due to an Printer Availability Error" >> $LOG_FILE
 			_reload_cups
 		fi
 	fi
@@ -107,30 +109,28 @@ fi
 
 
 #### set up varibles
-ENABLE_PRINTER="$(which cupsenable)"
-CANCEL_LAST_JOB="$(which lprm) -P"
+CUPSWATHCER_TMPDIR="/private/tmp/${REVERSE_DOMAIN}/"
+ENABLE_PRINTER="/usr/sbin/cupsenable"
+CANCEL_LAST_JOB="/usr/bin/lprm -P"
 
+[[ ! -d "$CUPSWATHCER_TMPDIR" ]] && mkdir -p "$CUPSWATHCER_TMPDIR"
 [[ -z "$LOG_FILE" ]] && touch $LOG_FILE && chown root:admin $LOG_FILE && chmod 750 $LOG_FILE 
 
 ### Find any paused printers
-PAUSED_PRINTER_LIST=$(lpstat -p | grep disabled | awk '{printf $2 " "}')
-
+PAUSED_PRINTER_LIST=$( /usr/bin/lpstat -p | grep disabled | awk '{printf $2 " "}')
 if [ -n "$PAUSED_PRINTER_LIST" ] ; then
 	for PRINTER in ${PAUSED_PRINTER_LIST[@]} ; do 
-		
-#### if the same print job has stopped the queue twice, delete it (otherwise just restart the queue)  
-		LAST_JOB=$(lpstat  -W not-completed | grep  $PRINTER | head -1 | awk '{print $1}')
-			
-			if [ -f /tmp/"$LAST_JOB" ] ; then
-				$CANCEL_LAST_JOB "$PRINTER"
-				$ENABLE_PRINTER "$PRINTER"
-					echo "$PRINTER" was resumed and job "$LAST_JOB" was canceled on $(date) >> $LOG_FILE
-						[[ -n "$LAST_JOB" ]] && rm /tmp/"$LAST_JOB"		
-			else
-				$ENABLE_PRINTER $PRINTER
-					echo "$PRINTER" was resumed on $(date) >> $LOG_FILE
-						[[ -n "$LAST_JOB" ]] && touch /tmp/"$LAST_JOB"				
-			fi
+#### if the same print job has stopped the queue twice, delete it (otherwise just restart the queue)  	
+	LAST_JOB=`/usr/bin/lpstat  -W not-completed -o $PRINTER | head -1 | awk '{print $1}'`
+	if [ -f "$CUPSWATHCER_TMPDIR/$LAST_JOB" ] ; then
+		$CANCEL_LAST_JOB "$PRINTER"
+    	echo "$PRINTER" was resumed and job "$LAST_JOB" was canceled on $(date) >> $LOG_FILE
+		[[ -n "$LAST_JOB" ]] && rm "$CUPSWATHCER_TMPDIR/$LAST_JOB"		
+	else
+		echo "$PRINTER" was resumed on $(date) >> $LOG_FILE
+		[[ -n "$LAST_JOB" ]] && touch "$CUPSWATHCER_TMPDIR/$LAST_JOB"				
+	fi
+	$ENABLE_PRINTER $PRINTER
 	done
 fi
 
