@@ -15,10 +15,9 @@
 VERSION="1.2"
 REVERSE_DOMAIN="com.eeaapps.cupswatcher"
 CUPSWATCHER_PATH=/usr/local/sbin/
-TIMER=30
-LAUNCHD_PATH="/Library/LaunchDaemons/$REVERSE_DOMAIN"
 CUPS_LAUNCHD="/System/Library/LaunchDaemons/org.cups.cupsd.plist"
 
+TIMER=30
 OSKERN=`sysctl -n kern.ostype`
 LOG_FILE="/var/log/cupswatcher.log"
 
@@ -34,16 +33,23 @@ case "$1" in
 	if [ `whoami` == "root" ] ; then 
 		[[ ! -d "$CUPSWATCHER_PATH" ]] && mkdir -pv "$CUPSWATCHER_PATH"
 		cp "$0" "$CUPSWATCHER_PATH"			
+		LAUNCHD_DIR="/Library/LaunchDaemons/"
+		LAUNCHD_PATH="$LAUNCHD_DIR/$REVERSE_DOMAIN"
 
+		### clear out any old launch
+		LOADED_LAUNCHD=`launchctl list | grep cupswatcher | awk '{print $3}'`
+		for LAUNCHD in ${LOADED_LAUNCHD[@]} ; do 
+ 			launchctl remove "$LAUNCHD"
+ 			echo unloading old version named "$LAUNCHD"
+ 		done
+		rm $LAUNCHD_DIR/*.cupswatcher.*
 		### this next part checks if the os is OS X and installs a launchD if it is so...
 			if [ "$OSKERN" == "Darwin" ]; then
 				echo "Making LaunchD plist file named $REVERSE_DOMAIN"
-				echo "The file is located at ${LAUNCHD_PATH}"
-				defaults write "$LAUNCHD_PATH" Label com.aapps.cupswatcher
+				defaults write "$LAUNCHD_PATH" Label "$REVERSE_DOMAIN"
 				defaults write "$LAUNCHD_PATH" ProgramArguments -array "$CUPSWATCHER_PATH"cupswatcher
 				defaults write "$LAUNCHD_PATH" StartInterval -int $TIMER
 				chmod 644 "$LAUNCHD_PATH".plist
-				[[ "$(launchctl list | grep -c cupswatcher)" = "1" ]] && launchctl unload "$LAUNCHD_PATH".plist && echo unloading old version…
 				echo "Loading cupswatcher into launchD"
 				launchctl load "$LAUNCHD_PATH".plist
 			fi
