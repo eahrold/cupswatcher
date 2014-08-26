@@ -16,6 +16,7 @@ VERSION="1.2"
 REVERSE_DOMAIN="com.eeaapps.cupswatcher"
 CUPSWATCHER_PATH=/usr/local/sbin/
 CUPS_LAUNCHD="/System/Library/LaunchDaemons/org.cups.cupsd.plist"
+HOST_NAME=$(scutil --get HostName)
 
 TIMER=30
 OSKERN=`sysctl -n kern.ostype`
@@ -103,19 +104,25 @@ _reload_cups(){
 ### run an extra routine if this is a server
 if [ "$1" ==  "-s" ]; then 
 	SERVER_STATUS=$(curl --silent http://127.0.0.1:631/printers/)
-	RC=$?
-	
+    RC=$?
 	if [ $RC -gt 0 ]; then
 		echo -e "The Server was restarted on $(date) due to a Print Server Crash" >> $LOG_FILE
 		_reload_cups
 	
-	else
-		PRINTER_ERROR=`echo $SERVER_STATUS | grep -c -w 'Internal Server Error'`
-		if [ $PRINTER_ERROR -gt 0 ]; then 
-			echo -e "The Server was restarted on $(date) due to an Printer Availability Error" >> $LOG_FILE
-			_reload_cups
-		fi
+    fi
+    
+	PRINTER_ERROR=`echo $SERVER_STATUS | grep -c -w 'Internal Server Error'`
+	if [ $PRINTER_ERROR -gt 0 ]; then 
+		echo -e "The Server was restarted on $(date) due to an Printer Availability Error" >> $LOG_FILE
+		_reload_cups
 	fi
+    
+    BAD_REQUEST=$(curl http://$HOST_NAME:631 | grep -c "Bad Request")
+	if [ $BAD_REQUEST -gt 0 ]; then
+		echo -e "The Server was restarted on $(date) due to an Bad Request Error" >> $LOG_FILE
+        _reload_cups
+    fi
+    
 fi
 
 
