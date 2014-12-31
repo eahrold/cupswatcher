@@ -11,158 +11,161 @@
 #####################################################
 #####################################################
 
-#####  Configure these to suite your os X environment
-VERSION="1.2"
+#####  Configure these to suite your OS environment
+VERSION="1.3"
 REVERSE_DOMAIN="com.eeaapps.cupswatcher"
-CUPSWATCHER_PATH=/usr/local/sbin/
-CUPS_LAUNCHD="/System/Library/LaunchDaemons/org.cups.cupsd.plist"
-HOST_NAME=$(scutil --get HostName)
-
-TIMER=30
-OSKERN=`sysctl -n kern.ostype`
 LOG_FILE="/var/log/cupswatcher.log"
+CUPSWATCHER_PATH=/usr/local/sbin/
+TIMER=30
 
-case "$1" in
+CUPS_LAUNCHD="/System/Library/LaunchDaemons/org.cups.cupsd.plist"
 
-### install self and create LauchD plist file
--v|--version)
-	echo $VERSION
-	exit 0
-;;
--i|--install)
-	##### test if run as root/sudoed
-	if [ `whoami` == "root" ] ; then 
-		[[ ! -d "$CUPSWATCHER_PATH" ]] && mkdir -pv "$CUPSWATCHER_PATH"
-		cp "$0" "$CUPSWATCHER_PATH"			
-		LAUNCHD_DIR="/Library/LaunchDaemons/"
-		LAUNCHD_PATH="$LAUNCHD_DIR/$REVERSE_DOMAIN"
+# Functions
+_uninstall(){
+    OSTYPE=`sysctl -n kern.ostype`
+    if [ "${OSTYPE}" == "Darwin" ]; then
+        LAUNCHD_DIR="/Library/LaunchDaemons/"
+        LAUNCHD_PATH="$LAUNCHD_DIR/$REVERSE_DOMAIN"
 
-		### clear out any old launch
-		LOADED_LAUNCHD=`launchctl list | grep cupswatcher | awk '{print $3}'`
-		for LAUNCHD in ${LOADED_LAUNCHD[@]} ; do 
- 			launchctl remove "$LAUNCHD"
- 			echo unloading old version named "$LAUNCHD"
- 		done
-		rm $LAUNCHD_DIR/*.cupswatcher.*
-		### this next part checks if the os is OS X and installs a launchD if it is so...
-			if [ "$OSKERN" == "Darwin" ]; then
-				echo "Making LaunchD plist file named $REVERSE_DOMAIN"
-				defaults write "$LAUNCHD_PATH" Label "$REVERSE_DOMAIN"
-				defaults write "$LAUNCHD_PATH" ProgramArguments -array "$CUPSWATCHER_PATH"cupswatcher
-				defaults write "$LAUNCHD_PATH" StartInterval -int $TIMER
-				chmod 644 "$LAUNCHD_PATH".plist
-				echo "Loading cupswatcher into launchD"
-				launchctl load "$LAUNCHD_PATH".plist
-			fi
-	else
-		echo the installer needs to be run as root
-	exit 1
-	fi	
-exit 0
-;;
+        ### Unload any pre-existing cupswatcher jobs
+        LOADED_LAUNCHD=`launchctl list | grep cupswatcher | awk '{print $3}'`
+        for LAUNCHD in ${LOADED_LAUNCHD[@]} ; do 
+            launchctl remove "$LAUNCHD"
+            echo Unloading old version with label "$LAUNCHD"
+        done
 
--r|--server)
-	##### test if run as root/sudoed
-	if [ `whoami` = "root" ] ; then 
-		[[ ! -d "$CUPSWATCHER_PATH" ]] && mkdir -pv "$CUPSWATCHER_PATH"
-		cp "$0" "$CUPSWATCHER_PATH"			
+        # Remove any older launchd files matching  
+        # the cupswatcher moniker.
+        rm ${LAUNCHD_DIR}/*.cupswatcher.*
 
-		### the server side uses the web interface to determin wether something's broken
-		### so we'll turn it on 
-		/usr/sbin/cupsctl WebInterface=yes
-		
-		### this next part checks if the os is OS X and installs a launchD if it is so...
-			if [ "$OSKERN" == "Darwin" ]; then
-				echo "Making LaunchD plist file named com.eeaapps.cupswatcher"
-				echo "The file is located at ${LAUNCHD_PATH}"
-				defaults write "$LAUNCHD_PATH" Label com.aapps.cupswatcher
-				defaults write "$LAUNCHD_PATH" ProgramArguments -array "$CUPSWATCHER_PATH/cupswatcher" "-s"
-				defaults write "$LAUNCHD_PATH" StartInterval -int $TIMER
-				chmod 644 "$LAUNCHD_PATH".plist
-				[[ "$(launchctl list | grep -c cupswatcher)" = "1" ]] && launchctl unload "$LAUNCHD_PATH".plist && echo unloading old version…
-				echo "Loading cupswatcher into launchD"
-				launchctl load "$LAUNCHD_PATH".plist
-			fi
-	else
-		echo the installer needs to be run as root
-	exit 1
-	fi	
-exit 0
-;;
-
-##### otherwise continue
-*)
-
-_reload_cups(){
-	launchctl unload ${CUPS_LAUNCHD}
-	sleep 2
-	launchctl load ${CUPS_LAUNCHD}
-	exit 1
+        # Remove the exec
+        rm "${CUPSWATCHER_PATH}cupswatcher"
+    fi
 }
 
+_install(){
+    OSTYPE=`sysctl -n kern.ostype`
+    # Test if running as root
+    if [ `whoami` = "root" ] ; then 
+        [[ ! -d "${CUPSWATCHER_PATH}" ]] && mkdir -pv "${CUPSWATCHER_PATH}"
+         # Uninstall old version first
+        _uninstall
+        cp "$0" "${CUPSWATCHER_PATH}" 
 
-### run an extra routine if this is a server
-if [ "$1" ==  "-s" ]; then 
-	SERVER_STATUS=$(curl --silent http://127.0.0.1:631/printers/)
-    RC=$?
-	if [ $RC -gt 0 ]; then
-		echo -e "The Server was restarted on $(date) due to a Print Server Crash" >> $LOG_FILE
-		_reload_cups
-	
+        if [ "${OSTYPE}" == "Darwin" ]; then
+            # Check if install is for server or client
+            if [ "$1" == "SERVER" ]; then
+                echo "Loading cupswatcher-server into launchD"
+                defaults write "${LAUNCHD_PATH}" ProgramArguments -array "${CUPSWATCHER_PATH}/cupswatcher" "-s"
+                
+                # The server side uses the web interface to determine 
+                # whether something is broken so turn it on. It would
+                # be nice to simply use `lpstat`, but for some reason
+                # with 1.7 and earlier it doesn't always accurately 
+                # report the server/print queue status.
+                /usr/sbin/cupsctl WebInterface=yes
+            else 
+                echo "Loading cupswatcher into launchD"
+                defaults write "${LAUNCHD_PATH}" ProgramArguments -array "${CUPSWATCHER_PATH}cupswatcher"
+            fi
+
+            defaults write "${LAUNCHD_PATH}" Label "${REVERSE_DOMAIN}"
+            defaults write "${LAUNCHD_PATH}" StartInterval -int $TIMER
+            chmod 644 "${LAUNCHD_PATH}".plist
+            launchctl load "${LAUNCHD_PATH}".plist
+        fi
+    else
+        echo the installer needs to be run as root
+        exit 1
     fi
-    
-	PRINTER_ERROR=`echo $SERVER_STATUS | grep -c -w 'Internal Server Error'`
-	if [ $PRINTER_ERROR -gt 0 ]; then 
-		echo -e "The Server was restarted on $(date) due to an Printer Availability Error" >> $LOG_FILE
-		_reload_cups
-	fi
-    
-    BAD_REQUEST=$(curl http://$HOST_NAME:631 | grep -c "Bad Request")
-	if [ $BAD_REQUEST -gt 0 ]; then
-		echo -e "The Server was restarted on $(date) due to an Bad Request Error" >> $LOG_FILE
-        _reload_cups
+}
+
+_reload_cups(){
+    OSTYPE=`sysctl -n kern.ostype`
+
+    if [ "${OSTYPE}" == "Darwin" ]; then
+        launchctl unload "${CUPS_LAUNCHD}"
+        sleep 2
+        launchctl load "${CUPS_LAUNCHD}"
+        exit $?
     fi
-    
-fi
+}
 
+case "$1" in
+### install self and create LauchD plist file
+    -v|--version)
+        echo $VERSION
+        exit 0
+        ;;
+    -i|--install)
+        _install
+        exit 0
+        ;;
+    -r|--server)
+        _install 'SERVER' 
+        exit 0
+        ;;
+    -u|--uninstall)
+        _uninstall 
+        exit 0
+        ;;
+##### otherwise continue
+*)
+    ### run an extra routine if this is a server
+    if [ "$1" ==  "-s" ]; then 
+        SERVER_STATUS=$(curl --silent http://127.0.0.1:631/printers/)
+        RC=$?
+        if [ $RC -gt 0 ]; then
+            echo -e "The Server was restarted on $(date) due to a Print Server Crash" >> $LOG_FILE
+            _reload_cups
+        fi
+     
+        PRINTER_ERROR=`echo $SERVER_STATUS | grep -c -w 'Internal Server Error'`
+        if [ $PRINTER_ERROR -gt 0 ]; then 
+            echo -e "The Server was restarted on $(date) due to an Printer Availability Error" >> $LOG_FILE
+            _reload_cups
+        fi
+        
+        BAD_REQUEST=$(curl --silent -o /dev/null -w "%{http_code}" http://$(hostname):631)
+        if [ $BAD_REQUEST -ne 200 ]; then
+            echo -e "The Server was restarted on $(date) due to an Bad Request Error" >> $LOG_FILE
+            _reload_cups
+        fi  
+    fi
 
-#### set up varibles
-CUPSWATHCER_TMPDIR="/private/tmp/${REVERSE_DOMAIN}/"
-ENABLE_PRINTER="/usr/sbin/cupsenable"
-CANCEL_LAST_JOB="/usr/bin/lprm -P"
+    # Set up varibles
+    CUPSWATHCER_TMPDIR="/private/tmp/${REVERSE_DOMAIN}/"
+    ENABLE_PRINTER="/usr/sbin/cupsenable"
+    CANCEL_LAST_JOB="/usr/bin/lprm -P"
 
-[[ ! -d "$CUPSWATHCER_TMPDIR" ]] && mkdir -p "$CUPSWATHCER_TMPDIR"
-[[ -z "$LOG_FILE" ]] && touch $LOG_FILE && chown root:admin $LOG_FILE && chmod 750 $LOG_FILE 
+    [[ ! -d "${CUPSWATHCER_TMPDIR}" ]] && mkdir -p "${CUPSWATHCER_TMPDIR}"
+    [[ -z "${LOG_FILE}" ]] && touch "${LOG_FILE}" && chown root:admin "${LOG_FILE}" && chmod 750 "${LOG_FILE}" 
 
-### Find any paused printers
-PAUSED_PRINTER_LIST=$( /usr/bin/lpstat -p | grep disabled | awk '{printf $2 " "}')
-if [ -n "$PAUSED_PRINTER_LIST" ] ; then
-	for PRINTER in ${PAUSED_PRINTER_LIST[@]} ; do 
-#### if the same print job has stopped the queue twice, delete it (otherwise just restart the queue)  	
-	LAST_JOB=`/usr/bin/lpstat  -W not-completed -o $PRINTER | head -1 | awk '{print $1}'`
-	if [ -n "$LAST_JOB" ] ; then 
-		if [ -f "$CUPSWATHCER_TMPDIR/$LAST_JOB" ] ; then
-			$CANCEL_LAST_JOB "$PRINTER"
-			rm "$CUPSWATHCER_TMPDIR/$LAST_JOB"
-			echo "$PRINTER" was resumed and job "$LAST_JOB" was canceled on $(date) >> $LOG_FILE
-	
-		else
-			touch "$CUPSWATHCER_TMPDIR/$LAST_JOB"
-			echo "$PRINTER" was resumed and job $"LAST_JOB" is was monitored on $(date) >> $LOG_FILE
-		fi
-	else
-		echo "$PRINTER" was resumed on $(date) >> $LOG_FILE
-	fi
-	$ENABLE_PRINTER $PRINTER
-	done
-fi
+    # Find any paused printers
+    PAUSED_PRINTER_LIST=$( /usr/bin/lpstat -p | grep disabled | awk '{printf $2 " "}')
+    if [ -n "${PAUSED_PRINTER_LIST}" ] ; then
+        for PRINTER in ${PAUSED_PRINTER_LIST[@]} ; do 
+    # If the same print job has stopped the queue twice, delete it (otherwise just restart the queue)    
+        LAST_JOB=`/usr/bin/lpstat  -W not-completed -o ${PRINTER} | head -1 | awk '{print $1}'`
+        if [ -n "${LAST_JOB}" ] ; then 
+            if [ -f "${CUPSWATHCER_TMPDIR}/${LAST_JOB}" ] ; then
+                $CANCEL_LAST_JOB "${PRINTER}"
+                rm "${CUPSWATHCER_TMPDIR}/${LAST_JOB}"
+                echo "${PRINTER}" was resumed and job "${LAST_JOB}" was canceled on $(date) >> ${LOG_FILE}
+        
+            else
+                touch "${CUPSWATHCER_TMPDIR}/${LAST_JOB}"
+                echo "${PRINTER}" was resumed and job $"{LAST_JOB}" is was monitored on $(date) >> ${LOG_FILE}
+            fi
+        else
+            echo "${PRINTER}" was resumed on $(date) >> ${LOG_FILE}
+        fi
+        ${ENABLE_PRINTER} ${PRINTER}
+        done
+    fi
 
-
-exit 0
-;;
-
-
-
-#### end case
+    exit 0
+    ;;
+#### End case
 esac
-exit 0 ;
+exit 0
